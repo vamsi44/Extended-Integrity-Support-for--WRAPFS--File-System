@@ -1,0 +1,72 @@
+
+HOME-WORK-2 ******************README********************
+
+Name : Surya Rama Vamsi Varanasi
+SB id: 108661822
+Email: varanasi.vamsi@gmail.com
+
+EXPLANATION:
+
+In this home work we introduce a new stackable file system on top of the underlying lower file systems . Stackable file system that we add in this assignment is a WRAPFS file system. I have modified the existing WRAPFS file system in order to introduce extended attributes for implementing integrity support for the underlying files / Directories in the file system.
+
+TASK 1:
+
+In task 1 , we need to add two extended attributes to the underlying files . i.e we add user.has_integrity and user.integrity_val attributes. The former one is useful to say if the file has the integrity value associated with it and latter one gives the actual calculated MD5 checksum value of that file. user.has_integrity can take two values either 0 or 1. we need to update/ calculate the user.integrity_val attribute if the former attribute is 1. we don't need to calculate the user.integrity_val if the has_integrity value is 0. 
+
+xattr.c:
+
+I have included a file xattr.c which has functions for setting/removing/listing/getting attributes. I have copied the initial code from union_fs file system and then I have changed the code as required and eliminated the un necessary fields. I first validate the value that the user is setting to check if the user is accidentally trying to set the user.integrity_val. if he tries to do that i print a kernel message and then I return from the setattr funciton. then I validate and see if the user.has_integrity values is either 0 or 1 and then proceed accordingly. if it is 1 then i also calculate the md5 checksum and then i add it as an attribute to the file . if it is zero i check if there is any existing md5 checksum value and then try to remove it. if it doesn't exist then i return setting the has_integrity value to 0. I have also checked if the user is the root user or not using the if (current_cred()->uid != 0) and then return -EACCES; if the user is not the root user while setting and removing the attributes as only root users can set and remove and other users can only query the value. I have also taken care that the integrity_Val attribute is being set only to the regular files and not the directory itself by using a check (S_ISREG(i->i_mode)); same was the case with removing attributes also.
+
+File.c:
+
+I have added some code to this previously existing file as and where required and i have also modified some of the existing code to match the assignment specifications. Firstly, I have add two functions chksum and init_desc to make the calculation of checksum easier and to make the code legible. I have made some changes to the existing open function. I have firstly opened the file in the read only mode to calcualte the checksum and then I again open the file with the given flags so that we can check the case of O_TRUNC / O_CREAT flags. since, while calculating the checksum of the existing files if we first open the file with the given flags the checksums donot match as the content gets truncated. I have checked also for the previously existing cheksum and newly calculated checksum. if both these checksums match then I open the file as the file integrity has not been compromised. If there is any error then i goto out and return the appropriate error as the file integrity has been compromised. I have also added testcases for the in ram state . i initialised a flag in the wrapfs_inode_info structure and then I use this flag to validate the in-ram state case when two processes are using the same file.
+
+Release function: in this function I firstly check the flag value to see if the file has been modified. If it is modified then i calculate the new checksum by again opening in in the read only mode and then update the value of this and then remove value of in ram state flag and set it to zero , since the file's new integriy value has been updated already be the release function.
+
+write function: I have just intialised the in-ram state flag to 1. if the control comes in to the write function as it means that the file has been modified.
+
+TASK 2:
+
+In this task we need to make sure that if the parent directory has the user.has_integrity value set to 1 then all the corresponding files in the directory take the same value and we need to again make sure that if the has_integrity value of a file is set to 1 then we need to calc its md5sum and then add it as an integrity_val.
+
+Inode.c:
+
+In this I have made changes to the create and mkdir functions. I have added the same code(with some modifications) from the file.c open function. where I get the existing integrity value of the parent directory by using vfs_getxattr(lower_parent_dentry,"user.has_integrity",buff1,1); and then I set the same attribute to any other file that is being created in the directotry using vfs_setxattr(lower_dentry, "user.has_integrity",buff1, 1, 0); this makes sure that the assigment requirement for that task 2 is validated and checked. then I compare and check to see if the value of has_integrity is 1. if it is 1 then i make sure to include and calculate the updated checksum by again calling the md5check sum functions and then set the integrity_val using retval1 = vfs_setxattr(lower_file->f_dentry, "user.integrity_val", i_value, 16, 0); 
+
+wrapfs.h
+
+I have also made some modifications to the wrapfs.h file to include the functions declartions in the xattr.c and then I have added their pointers to the structures in inode.c:  const struct inode_operations wrapfs_dir_iops and const struct inode_operations wrapfs_main_iops . 
+
+Makefile:
+I made some changes to make file to ensure that xattr.c also gets compiled.
+
+LTP:
+I haven't performed any LTP test cases. I thought it was very time consuming and tedious. But I think my code works well as I have tested it. I have also did leave any kind of locking mechanisms, as i was not sure how to implement them totally without errors.
+
+
+Mounting File system:
+
+mount -t ext3 -o user_xattr /dev/sdb1 /tmp (-o user_xattr is used to include extended attribute functions )
+mount -t wrapfs /tmp/ /n/scratch/
+
+Un-Mounting file system:
+
+umount /n/scratch/ (wrapfs unmounted)
+umount /tmp (ext3 unmounted)
+
+removing and installing module:
+insmod wrapfs.ko
+rmmod wrapfs
+
+Note:
+
+I have implemented wrapfs as a loadable kernel module, in order to do that i copy the files to the wrapfs directory and the do a make and then follow the installing and removing module commands as mentioned above
+
+
+Test-Cases:
+
+In order to perform test cases firstly, mount the ext3 and wrapfs file systems using the above mentioned unmounting and mounting file systems.
+
+Kernel.config:
+
+I have included the kernel.config file from my first home work and then added the option for wrapfs file system in (miscellaneous file system).
